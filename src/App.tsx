@@ -215,7 +215,7 @@ export default function TextDecoratorApp() {
     textGradientEnd, textGradientAngle, border1Color, border1Width,
     border2Color, border2Width, shadowEnabled, shadowOffsetX,
     shadowOffsetY, shadowBlur, shadowOpacity]);
-
+/*
   const drawText = async (targetCanvas = canvasRef.current) => {
     const canvas = targetCanvas;
     if (!canvas) return;
@@ -291,6 +291,95 @@ export default function TextDecoratorApp() {
     }
     ctx.fillText(text, x, y);
   };
+  */
+
+  // drawText 関数の修正案
+  const drawText = async (targetCanvas = canvasRef.current) => {
+    const canvas = targetCanvas;
+    if (!canvas) return;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    try {
+      await document.fonts.load(`${fontSize}px ${fontFamily}`);
+    } catch (error) {
+      console.warn('Font loading warning:', error);
+    }
+
+    // テキストを改行で分割
+    const lines = text.split('\n');
+    const lineHeight = fontSize * 1.2; // 行間の設定
+    
+    ctx.font = `${fontSize}px ${fontFamily}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineJoin = 'round';
+    ctx.miterLimit = 2;
+
+    const x = canvas.width / 2;
+    // 全体の高さの半分から、全行の高さの半分を引いて開始位置を調整
+    const totalHeight = lines.length * lineHeight;
+    let startY = (canvas.height / 2) - (totalHeight / 2) + (lineHeight / 2);
+
+    // 各行を描画するループ
+    lines.forEach((line, index) => {
+      const currentY = startY + (index * lineHeight);
+
+      // 1. 影
+      if (shadowEnabled) {
+        ctx.shadowColor = `rgba(0, 0, 0, ${shadowOpacity})`;
+        ctx.shadowBlur = shadowBlur;
+        ctx.shadowOffsetX = shadowOffsetX;
+        ctx.shadowOffsetY = shadowOffsetY;
+        ctx.fillStyle = 'black';
+        ctx.fillText(line, x, currentY);
+
+        // 影設定のリセット
+        ctx.shadowColor = 'transparent';
+        ctx.shadowBlur = 0;
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = 0;
+      }
+
+      // 2. 外側の縁（border2）
+      if (border2Width > 0) {
+        ctx.strokeStyle = border2Color;
+        ctx.lineWidth = border2Width * 2;
+        ctx.strokeText(line, x, currentY);
+      }
+
+      // 3. 内側の縁（border1）
+      if (border1Width > 0) {
+        ctx.strokeStyle = border1Color;
+        ctx.lineWidth = border1Width * 2;
+        ctx.strokeText(line, x, currentY);
+      }
+
+      // 4. テキスト本体（グラデーション対応）
+      if (textColorType === 'gradient') {
+        const metrics = ctx.measureText(line);
+        const textWidth = metrics.width;
+        const textHeight = fontSize;
+
+        const angleRad = (textGradientAngle * Math.PI) / 180;
+        const x1 = x - (textWidth / 2) * Math.cos(angleRad);
+        const y1 = currentY - (textHeight / 2) * Math.sin(angleRad);
+        const x2 = x + (textWidth / 2) * Math.cos(angleRad);
+        const y2 = currentY + (textHeight / 2) * Math.sin(angleRad);
+
+        const gradient = ctx.createLinearGradient(x1, y1, x2, y2);
+        gradient.addColorStop(0, textGradientStart);
+        gradient.addColorStop(1, textGradientEnd);
+        ctx.fillStyle = gradient;
+      } else {
+        ctx.fillStyle = textColor;
+      }
+      ctx.fillText(line, x, currentY);
+    });
+  };
 
   const downloadImage = () => {
     const downloadCanvas = downloadCanvasRef.current;
@@ -301,65 +390,84 @@ export default function TextDecoratorApp() {
 
     if (!canvasRef.current) return;
 
+    // 1. キャンバスの初期化
     ctx.clearRect(0, 0, downloadCanvas.width, downloadCanvas.height);
 
+    // 2. スケール（プレビュー用キャンバスとダウンロード用キャンバスの比率）の計算
     const scale = downloadCanvas.width / canvasRef.current.width;
+    const scaledFontSize = fontSize * scale;
+    const lines = text.split('\n');
+    const lineHeight = scaledFontSize * 1.2; // 行間
 
-    ctx.font = `${fontSize * scale}px ${fontFamily}`;
+    // 3. 基本設定の適用
+    ctx.font = `${scaledFontSize}px ${fontFamily}`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.lineJoin = 'round';
     ctx.miterLimit = 2;
 
     const x = downloadCanvas.width / 2;
-    const y = downloadCanvas.height / 2;
+    // 全行の合計高さを計算し、垂直方向の中央位置を割り出す
+    const totalHeight = lines.length * lineHeight;
+    let startY = (downloadCanvas.height / 2) - (totalHeight / 2) + (lineHeight / 2);
 
-    if (shadowEnabled) {
-      ctx.shadowColor = `rgba(0, 0, 0, ${shadowOpacity})`;
-      ctx.shadowBlur = shadowBlur * scale;
-      ctx.shadowOffsetX = shadowOffsetX * scale;
-      ctx.shadowOffsetY = shadowOffsetY * scale;
-      ctx.fillStyle = 'black';
-      ctx.fillText(text, x, y);
+    // 4. 各行をループして描画
+    lines.forEach((line, index) => {
+      const currentY = startY + (index * lineHeight);
 
-      ctx.shadowColor = 'transparent';
-      ctx.shadowBlur = 0;
-      ctx.shadowOffsetX = 0;
-      ctx.shadowOffsetY = 0;
-    }
+      // --- 影の描画 ---
+      if (shadowEnabled) {
+        ctx.shadowColor = `rgba(0, 0, 0, ${shadowOpacity})`;
+        ctx.shadowBlur = shadowBlur * scale;
+        ctx.shadowOffsetX = shadowOffsetX * scale;
+        ctx.shadowOffsetY = shadowOffsetY * scale;
+        ctx.fillStyle = 'black';
+        ctx.fillText(line, x, currentY);
 
-    if (border2Width > 0) {
-      ctx.strokeStyle = border2Color;
-      ctx.lineWidth = border2Width * 2 * scale;
-      ctx.strokeText(text, x, y);
-    }
+        // 影設定をリセット（縁取りに影響させないため）
+        ctx.shadowColor = 'transparent';
+        ctx.shadowBlur = 0;
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = 0;
+      }
 
-    if (border1Width > 0) {
-      ctx.strokeStyle = border1Color;
-      ctx.lineWidth = border1Width * 2 * scale;
-      ctx.strokeText(text, x, y);
-    }
+      // --- 外側の縁（border2） ---
+      if (border2Width > 0) {
+        ctx.strokeStyle = border2Color;
+        ctx.lineWidth = border2Width * 2 * scale;
+        ctx.strokeText(line, x, currentY);
+      }
 
-    if (textColorType === 'gradient') {
-      const metrics = ctx.measureText(text);
-      const textHeight = fontSize * scale;
-      const textWidth = metrics.width;
+      // --- 内側の縁（border1） ---
+      if (border1Width > 0) {
+        ctx.strokeStyle = border1Color;
+        ctx.lineWidth = border1Width * 2 * scale;
+        ctx.strokeText(line, x, currentY);
+      }
 
-      const angleRad = (textGradientAngle * Math.PI) / 180;
-      const x1 = x - (textWidth / 2) * Math.cos(angleRad);
-      const y1 = y - (textHeight / 2) * Math.sin(angleRad);
-      const x2 = x + (textWidth / 2) * Math.cos(angleRad);
-      const y2 = y + (textHeight / 2) * Math.sin(angleRad);
+      // --- テキスト本体（グラデーション/塗りつぶし） ---
+      if (textColorType === 'gradient') {
+        const metrics = ctx.measureText(line);
+        const textWidth = metrics.width;
+        const textHeight = scaledFontSize;
 
-      const gradient = ctx.createLinearGradient(x1, y1, x2, y2);
-      gradient.addColorStop(0, textGradientStart);
-      gradient.addColorStop(1, textGradientEnd);
-      ctx.fillStyle = gradient;
-    } else {
-      ctx.fillStyle = textColor;
-    }
-    ctx.fillText(text, x, y);
+        const angleRad = (textGradientAngle * Math.PI) / 180;
+        const x1 = x - (textWidth / 2) * Math.cos(angleRad);
+        const y1 = currentY - (textHeight / 2) * Math.sin(angleRad);
+        const x2 = x + (textWidth / 2) * Math.cos(angleRad);
+        const y2 = currentY + (textHeight / 2) * Math.sin(angleRad);
 
+        const gradient = ctx.createLinearGradient(x1, y1, x2, y2);
+        gradient.addColorStop(0, textGradientStart);
+        gradient.addColorStop(1, textGradientEnd);
+        ctx.fillStyle = gradient;
+      } else {
+        ctx.fillStyle = textColor;
+      }
+      ctx.fillText(line, x, currentY);
+    });
+
+    // 5. 画像として書き出し
     downloadCanvas.toBlob((blob) => {
       if (!blob) return;
       const url = URL.createObjectURL(blob);
@@ -483,6 +591,7 @@ export default function TextDecoratorApp() {
             </div>
 
             {/* テキスト入力 */}
+            {/*
             <div className="mb-3">
               <input
                 type="text"
@@ -490,6 +599,17 @@ export default function TextDecoratorApp() {
                 onChange={(e) => setText(e.target.value)}
                 className="w-full bg-slate-700 border border-slate-600 rounded px-4 py-3 text-white text-lg"
                 placeholder="テキストを入力"
+              />
+            </div>
+            */}
+            <div className="mb-3">
+              <textarea
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                // 元のclassNameをすべて継承し、textarea用に「resize-none」を追加しています
+                className="w-full bg-slate-700 border border-slate-600 rounded px-4 py-3 text-white text-lg resize-none"
+                placeholder="テキストを入力（Enterで改行）"
+                rows={3} 
               />
             </div>
 
