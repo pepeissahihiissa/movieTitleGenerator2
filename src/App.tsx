@@ -112,6 +112,9 @@ export default function TextDecoratorApp() {
   const [shadowBlur, setShadowBlur] = useState(10);
   const [shadowOpacity, setShadowOpacity] = useState(0.6);
 
+  // 行間
+  const [lineHeight, setLineHeight] = useState(1.2);
+
   const [activeTab, setActiveTab] = useState('text');
   const [presets, setPresets] = useState<Preset[]>([
     {
@@ -211,7 +214,7 @@ export default function TextDecoratorApp() {
 
   useEffect(() => {
     drawText();
-  }, [text, fontSize, fontFamily, textColor, textColorType, textGradientStart,
+  }, [text, fontSize, lineHeight, fontFamily, textColor, textColorType, textGradientStart,
     textGradientEnd, textGradientAngle, border1Color, border1Width,
     border2Color, border2Width, shadowEnabled, shadowOffsetX,
     shadowOffsetY, shadowBlur, shadowOpacity]);
@@ -311,7 +314,7 @@ export default function TextDecoratorApp() {
 
     // テキストを改行で分割
     const lines = text.split('\n');
-    const lineHeight = fontSize * 1.2; // 行間の設定
+    const _lineHeight = fontSize * lineHeight; // 行間の設定
     
     ctx.font = `${fontSize}px ${fontFamily}`;
     ctx.textAlign = 'center';
@@ -321,12 +324,12 @@ export default function TextDecoratorApp() {
 
     const x = canvas.width / 2;
     // 全体の高さの半分から、全行の高さの半分を引いて開始位置を調整
-    const totalHeight = lines.length * lineHeight;
+    const totalHeight = lines.length * _lineHeight;
     let startY = (canvas.height / 2) - (totalHeight / 2) + (lineHeight / 2);
 
     // 各行を描画するループ
     lines.forEach((line, index) => {
-      const currentY = startY + (index * lineHeight);
+      const currentY = startY + (index * _lineHeight);
 
       // 1. 影
       if (shadowEnabled) {
@@ -397,7 +400,7 @@ export default function TextDecoratorApp() {
     const scale = downloadCanvas.width / canvasRef.current.width;
     const scaledFontSize = fontSize * scale;
     const lines = text.split('\n');
-    const lineHeight = scaledFontSize * 1.2; // 行間
+    const scaledLineHeight = scaledFontSize * lineHeight; // 行間
 
     // 3. 基本設定の適用
     ctx.font = `${scaledFontSize}px ${fontFamily}`;
@@ -408,12 +411,12 @@ export default function TextDecoratorApp() {
 
     const x = downloadCanvas.width / 2;
     // 全行の合計高さを計算し、垂直方向の中央位置を割り出す
-    const totalHeight = lines.length * lineHeight;
+    const totalHeight = lines.length * scaledLineHeight;
     let startY = (downloadCanvas.height / 2) - (totalHeight / 2) + (lineHeight / 2);
 
     // 4. 各行をループして描画
     lines.forEach((line, index) => {
-      const currentY = startY + (index * lineHeight);
+      const currentY = startY + (index * scaledLineHeight);
 
       // --- 影の描画 ---
       if (shadowEnabled) {
@@ -679,6 +682,22 @@ export default function TextDecoratorApp() {
                   className="w-full mt-2"
                 />
               </div>
+            </div>
+
+            <div className="mb-4">
+              <div className="flex justify-between mb-2">
+                <label className="text-sm font-medium text-slate-300">行間</label>
+                <span className="text-xs text-slate-400">{lineHeight.toFixed(1)}</span>
+              </div>
+              <input
+                type="range"
+                min="0.5"
+                max="3.0"
+                step="0.1"
+                value={lineHeight}
+                onChange={(e) => setLineHeight(parseFloat(e.target.value))}
+                className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer"
+              />
             </div>
 
             <button
