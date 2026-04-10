@@ -1,7 +1,8 @@
 // import React, { useState, useEffect, useRef } from 'react';
 import './fonts.css'
 import { useState, useRef, useEffect } from 'react';
-import { Download, Save, FolderOpen, Type, Palette, Frame, Sun, AlertCircle } from 'lucide-react';
+import { Download, Save, Palette, Sun } from 'lucide-react';
+import { Trash2 } from 'lucide-react';
 
 type PresetConfig = {
   textColor?: string;
@@ -92,8 +93,8 @@ export default function TextDecoratorApp() {
   // ローカルフォント関連
   const [localFontsAvailable, setLocalFontsAvailable] = useState(false);
   const [localFonts, setLocalFonts] = useState<LocalFont[]>([]);
-  const [fontSource, setFontSource] = useState<'preset' | 'local'>('preset');
-  const [isLoadingFonts, setIsLoadingFonts] = useState(false);
+  // const [fontSource, setFontSource] = useState<'preset' | 'local'>('preset');
+  // const [isLoadingFonts, setIsLoadingFonts] = useState(false);
 
   // テキスト色（グラデーション対応）
   const [textColorType, setTextColorType] = useState<'solid' | 'gradient'>('solid');
@@ -112,11 +113,48 @@ export default function TextDecoratorApp() {
   const [shadowBlur, setShadowBlur] = useState(10);
   const [shadowOpacity, setShadowOpacity] = useState(0.6);
 
+  // canvasベース座標
+  // const [textPos, setTextPos] = useState({ x: 0, y: 0 }); // offset（ズレ）を管理
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+
+    const textPosRef = useRef({ x: 0, y: 0 });
+
   // 行間
   const [lineHeight, setLineHeight] = useState(1.2);
 
-  const [activeTab, setActiveTab] = useState('text');
-  const [presets, setPresets] = useState<Preset[]>([
+  const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    setIsDragging(true);
+    // クリックした瞬間のマウス座標を記録
+    setDragStart({ x: e.clientX, y: e.clientY });
+  };
+
+const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
+  if (!isDragging) return;
+
+  const dx = e.clientX - dragStart.x;
+  const dy = e.clientY - dragStart.y;
+
+  // ref の座標を直接書き換え
+  textPosRef.current = {
+    x: textPosRef.current.x + dx,
+    y: textPosRef.current.y + dy
+  };
+
+  // 次の比較用に dragStart 更新
+  setDragStart({ x: e.clientX, y: e.clientY });
+
+  // ★ 即時描画 ★
+  drawText();
+};
+
+const handleMouseUp = () => {
+  setIsDragging(false);
+  // setTextPos(textPosRef.current); // 状態同期したい場合のみ
+};
+
+  // const [activeTab, setActiveTab] = useState('text');
+  const DEFAULT_PRESETS: Preset[] =([
     {
       name: 'YouTube風', config: {
         textColor: '#FF0000', border1Color: '#FFFFFF', border1Width: 8,
@@ -143,9 +181,26 @@ export default function TextDecoratorApp() {
     },
   ]);
 
+  const [presets, setPresets] = useState<Preset[]>(() => {
+  if (typeof window === 'undefined') return DEFAULT_PRESETS; // サーバーサイドレンダリング対策
+
+  const saved = localStorage.getItem('text-decorator-presets');
+  if (saved) {
+    try {
+      const parsed = JSON.parse(saved);
+      // 保存されたデータが空配列でなければ、それを返す
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    } catch (e) {
+      console.error("読み込み失敗:", e);
+    }
+  }
+  // 保存データがない、またはエラーの場合はデフォルト値を返す
+  return DEFAULT_PRESETS;
+});
+
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const downloadCanvasRef = useRef<HTMLCanvasElement | null>(null);
-
+  
   // Local Font Access APIのサポート確認
   useEffect(() => {
     if ('queryLocalFonts' in window) {
@@ -153,11 +208,24 @@ export default function TextDecoratorApp() {
     }
   }, []);
 
+  const deletePreset = (indexToDelete: number) => {
+    // WinFormsの MessageBox.Show 的な確認
+    if (!window.confirm(`プリセット「${presets[indexToDelete].name}」を削除してもよろしいですか？`)) {
+      return;
+    }
+
+    const updatedPresets = presets.filter((_, index) => index !== indexToDelete);
+    setPresets(updatedPresets);
+    
+    // 保存も更新
+    localStorage.setItem('text-decorator-presets', JSON.stringify(updatedPresets));
+  };
+
   // ローカルフォントの取得
   const loadLocalFonts = async () => {
     if (!('queryLocalFonts' in window)) return;
 
-    setIsLoadingFonts(true);
+    // setIsLoadingFonts(true);
     try {
       const availableFonts = await window.queryLocalFonts!();
       
@@ -174,12 +242,12 @@ export default function TextDecoratorApp() {
       ).sort((a: any, b: any) => a.family.localeCompare(b.family));
 
       setLocalFonts(uniqueFonts as LocalFont[]);
-      setFontSource('local');
-      
+      // setFontSource('local');
+      setLocalFonts(uniqueFonts as LocalFont[]);
       // 最初のローカルフォントを選択
-      if (uniqueFonts.length > 0) {
-        setFontFamily((uniqueFonts[0] as LocalFont).family);
-      }
+      //if (uniqueFonts.length > 0) {
+      //  setFontFamily((uniqueFonts[0] as LocalFont).family);
+      //}
     } catch (error: any) {
       console.error('フォントアクセスエラー:', error);
       
@@ -192,18 +260,19 @@ export default function TextDecoratorApp() {
       }
       
       alert(errorMessage);
-      setFontSource('preset');
+      // setFontSource('preset');
     } finally {
-      setIsLoadingFonts(false);
+      // setIsLoadingFonts(false);
     }
   };
 
+  /*
   // フォントソース切り替え
   const handleFontSourceChange = (source: 'preset' | 'local') => {
     if (source === 'local' && localFonts.length === 0) {
       loadLocalFonts();
     } else {
-      setFontSource(source);
+      // setFontSource(source);
       if (source === 'preset') {
         setFontFamily(presetFonts[0].family);
       } else if (localFonts.length > 0) {
@@ -211,6 +280,29 @@ export default function TextDecoratorApp() {
       }
     }
   };
+  */
+
+  const containerRef = useRef(null); // 親要素の参照を追加
+
+  // サイズを自動調整するuseEffect
+  useEffect(() => {
+    const updateSize = () => {
+      if (containerRef.current && canvasRef.current) {
+        const { clientWidth, clientHeight } = containerRef.current;
+        // キャンバスの描画解像度を親要素に合わせる（WPFのStretchに近い動作）
+        canvasRef.current.width = clientWidth - 40; // padding分を引く
+        canvasRef.current.height = clientHeight - 40;
+        drawText(); // サイズが変わったら再描画
+      }
+    };
+
+    window.addEventListener('resize', updateSize);
+    updateSize(); // 初回実行
+    return () => window.removeEventListener('resize', updateSize);
+  }, [text, fontSize, lineHeight, fontFamily, textColor, textColorType, textGradientStart,
+    textGradientEnd, textGradientAngle, border1Color, border1Width,
+    border2Color, border2Width, shadowEnabled, shadowOffsetX,
+    shadowOffsetY, shadowBlur, shadowOpacity]); // 依存配列にdrawTextで使う変数を追加
 
   useEffect(() => {
     drawText();
@@ -218,86 +310,9 @@ export default function TextDecoratorApp() {
     textGradientEnd, textGradientAngle, border1Color, border1Width,
     border2Color, border2Width, shadowEnabled, shadowOffsetX,
     shadowOffsetY, shadowBlur, shadowOpacity]);
-/*
-  const drawText = async (targetCanvas = canvasRef.current) => {
-    const canvas = targetCanvas;
-    if (!canvas) return;
-
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    // フォントが読み込まれるまで待つ
-    try {
-      await document.fonts.load(`${fontSize}px ${fontFamily}`);
-    } catch (error) {
-      console.warn('Font loading warning:', error);
-    }
-
-    ctx.font = `${fontSize}px ${fontFamily}`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.lineJoin = 'round';
-    ctx.miterLimit = 2;
-
-    const x = canvas.width / 2;
-    const y = canvas.height / 2;
-
-    // 影
-    if (shadowEnabled) {
-      ctx.shadowColor = `rgba(0, 0, 0, ${shadowOpacity})`;
-      ctx.shadowBlur = shadowBlur;
-      ctx.shadowOffsetX = shadowOffsetX;
-      ctx.shadowOffsetY = shadowOffsetY;
-      ctx.fillStyle = 'black';
-      ctx.fillText(text, x, y);
-
-      ctx.shadowColor = 'transparent';
-      ctx.shadowBlur = 0;
-      ctx.shadowOffsetX = 0;
-      ctx.shadowOffsetY = 0;
-    }
-
-    // 外側の縁（border2）
-    if (border2Width > 0) {
-      ctx.strokeStyle = border2Color;
-      ctx.lineWidth = border2Width * 2;
-      ctx.strokeText(text, x, y);
-    }
-
-    // 内側の縁（border1）
-    if (border1Width > 0) {
-      ctx.strokeStyle = border1Color;
-      ctx.lineWidth = border1Width * 2;
-      ctx.strokeText(text, x, y);
-    }
-
-    // テキスト本体（グラデーション対応）
-    if (textColorType === 'gradient') {
-      const metrics = ctx.measureText(text);
-      const textHeight = fontSize;
-      const textWidth = metrics.width;
-
-      const angleRad = (textGradientAngle * Math.PI) / 180;
-      const x1 = x - (textWidth / 2) * Math.cos(angleRad);
-      const y1 = y - (textHeight / 2) * Math.sin(angleRad);
-      const x2 = x + (textWidth / 2) * Math.cos(angleRad);
-      const y2 = y + (textHeight / 2) * Math.sin(angleRad);
-
-      const gradient = ctx.createLinearGradient(x1, y1, x2, y2);
-      gradient.addColorStop(0, textGradientStart);
-      gradient.addColorStop(1, textGradientEnd);
-      ctx.fillStyle = gradient;
-    } else {
-      ctx.fillStyle = textColor;
-    }
-    ctx.fillText(text, x, y);
-  };
-  */
 
   // drawText 関数の修正案
-  const drawText = async (targetCanvas = canvasRef.current) => {
+const drawText = async (targetCanvas = canvasRef.current) => {
     const canvas = targetCanvas;
     if (!canvas) return;
 
@@ -312,23 +327,39 @@ export default function TextDecoratorApp() {
       console.warn('Font loading warning:', error);
     }
 
-    // テキストを改行で分割
     const lines = text.split('\n');
-    const _lineHeight = fontSize * lineHeight; // 行間の設定
+    const _lineHeight = fontSize * lineHeight;
+    const lineHeightPx = fontSize * lineHeight;
     
+    // 全行の高さ
+    const totalHeight = lines.length * lineHeightPx;
+
     ctx.font = `${fontSize}px ${fontFamily}`;
     ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
+    
+    // 【修正ポイント1】基準を「中央」から「中央のベースライン」に変更
+    // これにより、1行目が常にキャンバスの真ん中に座るようになります
+    ctx.textBaseline = 'middle'; 
     ctx.lineJoin = 'round';
     ctx.miterLimit = 2;
 
     const x = canvas.width / 2;
-    // 全体の高さの半分から、全行の高さの半分を引いて開始位置を調整
-    const totalHeight = lines.length * _lineHeight;
-    let startY = (canvas.height / 2) - (totalHeight / 2) + (lineHeight / 2);
 
-    // 各行を描画するループ
+    const { x: offsetX, y: offsetY } = textPosRef.current;
+
+    // textPos.x/y をそのまま「中心からのズレ」として使います
+    // const centerX = (canvas.width / 2) + textPos.x;
+    // 1行目のベースライン位置を計算
+    // テキスト全体の中央位置を固定
+    // const startY = (canvas.height / 2) - (totalHeight / 2) + (lineHeightPx / 2) + textPos.y;
+
+    // 中央からのズレとして使用
+    const startY = (canvas.height / 2) - (totalHeight / 2) + (lineHeightPx / 2) + offsetY;
+    const centerX = (canvas.width / 2) + offsetX;
+
     lines.forEach((line, index) => {
+      // index=0（1行目）のときは currentY = startY となり動きません
+      // index=1以降、行間（_lineHeight）が加算されて下に配置されます
       const currentY = startY + (index * _lineHeight);
 
       // 1. 影
@@ -338,9 +369,8 @@ export default function TextDecoratorApp() {
         ctx.shadowOffsetX = shadowOffsetX;
         ctx.shadowOffsetY = shadowOffsetY;
         ctx.fillStyle = 'black';
-        ctx.fillText(line, x, currentY);
+        ctx.fillText(line, centerX, currentY);
 
-        // 影設定のリセット
         ctx.shadowColor = 'transparent';
         ctx.shadowBlur = 0;
         ctx.shadowOffsetX = 0;
@@ -351,17 +381,17 @@ export default function TextDecoratorApp() {
       if (border2Width > 0) {
         ctx.strokeStyle = border2Color;
         ctx.lineWidth = border2Width * 2;
-        ctx.strokeText(line, x, currentY);
+        ctx.strokeText(line, centerX, currentY);
       }
 
       // 3. 内側の縁（border1）
       if (border1Width > 0) {
         ctx.strokeStyle = border1Color;
         ctx.lineWidth = border1Width * 2;
-        ctx.strokeText(line, x, currentY);
+        ctx.strokeText(line, centerX, currentY);
       }
 
-      // 4. テキスト本体（グラデーション対応）
+      // 4. テキスト本体
       if (textColorType === 'gradient') {
         const metrics = ctx.measureText(line);
         const textWidth = metrics.width;
@@ -380,11 +410,12 @@ export default function TextDecoratorApp() {
       } else {
         ctx.fillStyle = textColor;
       }
-      ctx.fillText(line, x, currentY);
+      ctx.fillText(line, centerX, currentY);
     });
   };
-
-  const downloadImage = () => {
+  
+  const downloadImage =  async() => {
+    await document.fonts.load(`${fontSize}px ${fontFamily}`);
     const downloadCanvas = downloadCanvasRef.current;
     if (!downloadCanvas) return;
 
@@ -483,27 +514,33 @@ export default function TextDecoratorApp() {
   };
 
   const savePreset = () => {
-    const name = prompt('プリセット名を入力してください:');
-    if (!name) return;
+    const presetName = prompt("プリセットの名前を入力してください", `Preset ${presets.length + 1}`);
+    if (!presetName) return;
 
-    const config: PresetConfig = {
-      textColor,
-      textColorType,
-      textGradientStart,
-      textGradientEnd,
-      textGradientAngle,
-      border1Color,
-      border1Width,
-      border2Color,
-      border2Width,
-      shadowEnabled,
-      shadowOffsetX,
-      shadowOffsetY,
-      shadowBlur,
-      shadowOpacity,
+    const newPreset = {
+      name: presetName,
+      config: {
+        fontFamily,
+        fontSize,
+        lineHeight,
+        textColor,
+        textColorType,
+        textGradientStart,
+        textGradientEnd,
+        textGradientAngle,
+        border1Color,
+        border1Width,
+        border2Color,
+        border2Width
+        // ...その他保存したいパラメータ
+      }
     };
 
-    setPresets([...presets, { name, config }]);
+    const updatedPresets = [...presets, newPreset];
+    setPresets(updatedPresets);
+
+    // localStorageに保存 (JSON形式の文字列にする)
+    localStorage.setItem('text-decorator-presets', JSON.stringify(updatedPresets));
   };
 
   const loadPreset = (preset: Preset) => {
@@ -527,469 +564,297 @@ export default function TextDecoratorApp() {
 //  const currentFonts = fontSource === 'preset' ? presetFonts : localFonts;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 text-white p-4">
-      <div className="max-w-6xl mx-auto">
-        <div className="text-center mb-6">
-          <h1 className="text-3xl font-bold mb-1 flex items-center justify-center gap-2">
-            <Type className="w-8 h-8" />
-            装飾文字ジェネレーター
-          </h1>
-          <p className="text-slate-400 text-sm">テキストを変更すると全ての効果が自動追従</p>
+  /* w-screen h-screen で画面全体を強制的に占有し、flex で横並びにします */
+  <div className="flex flex-row w-screen h-screen bg-slate-900 text-white overflow-hidden">
+    
+{/* 左カラム：Preset Panel */}
+<aside className="w-64 flex-shrink-0 border-r border-slate-700 bg-slate-800 p-4 flex flex-col overflow-hidden">
+  <h2 className="text-xl font-bold flex items-center gap-2 mb-4">
+    <Sun size={20} className="text-yellow-400" /> Presets
+  </h2>
+
+  {/* スクロール可能なエリア */}
+<div className="flex-1 overflow-y-auto space-y-3 pr-2 custom-scrollbar">
+  {presets.map((preset, index) => (
+    /* 外側を button から div に変更 */
+    <div
+      key={index}
+      className="group relative w-full overflow-hidden rounded-lg border border-slate-700 bg-slate-900 transition-all hover:border-blue-500 hover:ring-1 hover:ring-blue-500 cursor-pointer"
+      onClick={() => loadPreset(preset)}
+    >
+      <div className="p-3"> {/* 余白用の中敷き */}
+        {/* プリセット名 */}
+        <span className="text-sm font-medium text-slate-200 block mb-2">{preset.name}</span>
+        
+        {/* 小さなプレビュー表示 */}
+        <div 
+          className="w-full h-1.5 rounded-full" 
+          style={{ 
+            background: preset.config.textColorType === 'gradient' 
+              ? `linear-gradient(90deg, ${preset.config.textGradientStart}, ${preset.config.textGradientEnd})`
+              : (preset.config.textColor || '#FFFFFF') /* null対策 */
+          }}
+        />
+      </div>
+
+      {/* ゴミ箱ボタン：divの中であればOK */}
+      <button
+        onClick={(e) => {
+          e.stopPropagation(); 
+          deletePreset(index);
+        }}
+        className="absolute top-2 right-2 p-1.5 text-slate-500 hover:text-red-500 hover:bg-red-500/10 rounded-md transition-all opacity-0 group-hover:opacity-100"
+        title="削除"
+      >
+        <Trash2 size={14} />
+      </button>
+    </div>
+  ))}
+</div>
+
+  {/* 下部に現在の設定を保存するボタン（右側にもありますが、ここにあると便利） */}
+  {/*
+  <button 
+    onClick={savePreset}
+    className="mt-4 flex items-center justify-center gap-2 rounded-md bg-slate-700 py-2 text-xs font-bold text-white hover:bg-slate-600"
+  >
+    <Save size={14} /> New Preset
+  </button>
+  */}
+</aside>
+    {/* 中央カラム：Main Editor (flex-1 = 残りの幅をすべて使う) */}
+    <main className="flex-1 min-w-0 flex flex-col p-6 bg-slate-900">
+      <div className="mb-4">
+        <label className="block text-sm text-slate-400 mb-1">Text Input</label>
+        <textarea 
+          className="w-full h-32 bg-slate-800 border border-slate-700 rounded p-3 text-white"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+        />
+      </div>
+      
+      {/* プレビューエリア：flex-1 で余った下のスペースをすべて埋める */}
+        <div ref={containerRef} min-w-0="true" min-h-0="true" className="flex-1 flex items-center justify-center bg-black border border-slate-800 rounded-lg relative overflow-hidden">
+          <canvas ref={canvasRef} 
+            onMouseDown={handleMouseDown}
+            onMouseMove={handleMouseMove}
+            onMouseUp={handleMouseUp}
+            onMouseLeave={handleMouseUp} // 枠外に出たらドラッグ終了
+            style={{             
+            /* 格子模様のインライン指定 */
+            backgroundColor: '#f8f8f8',
+            backgroundImage: `
+              linear-gradient(45deg, #eee 25%, transparent 25%, transparent 75%, #eee 75%, #eee), 
+              linear-gradient(45deg, #eee 25%, transparent 25%, transparent 75%, #eee 75%, #eee)
+            `,
+            backgroundSize: '20px 20px',
+            backgroundPosition: '0 0, 10px 10px',maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
+            className={`max-w-full max-h-full shadow-2xl ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`} />
+
+            {/* ダウンロード用（ユーザーには見えない） */}
+            <canvas 
+              ref={downloadCanvasRef} 
+              width={1920} // 保存したい解像度
+              height={1080} 
+              className="hidden" 
+            />
+      </div>
+    </main>
+
+    {/* 右カラム：Property (固定幅 w-80 = 320px) */}
+{/* 右カラム：Property Panel */}
+<aside className="w-80 flex-shrink-0 border-l border-slate-700 bg-slate-800 p-4 flex flex-col gap-6 overflow-y-auto">
+  
+  {/* ヘッダー：Exportボタン */}
+  <div className="flex justify-between items-center border-b border-slate-700 pb-4">
+    <h2 className="text-xl font-bold flex items-center gap-2">
+      <Palette size={20} className="text-blue-400" /> Style
+    </h2>
+    <button 
+      onClick={downloadImage}
+      className="bg-orange-600 hover:bg-orange-500 text-white px-4 py-2 rounded-md flex items-center gap-2 text-sm font-bold transition-colors"
+    >
+      <Download size={16} /> Export PNG
+    </button>
+  </div>
+
+{/* TYPOGRAPHY SECTION */}
+<section className="space-y-4">
+  <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Typography</h3>
+  
+  {/* Font Family Label & Action Button */}
+  <div className="space-y-2">
+    <div className="flex justify-between items-end">
+      <label className="text-xs text-slate-400">Font Family</label>
+      
+      {/* サポート状況に応じた表示の切り替え */}
+      {localFontsAvailable ? (
+        localFonts.length === 0 && (
+          <button 
+            onClick={loadLocalFonts} 
+            className="text-[10px] px-2 py-1 bg-slate-700 hover:bg-slate-600 text-blue-400 rounded border border-slate-600 transition-colors"
+          >
+            Load System Fonts
+          </button>
+        )
+      ) : (
+        <span className="text-[10px] text-amber-500/50">System fonts not supported</span>
+      )}
+    </div>
+
+    {/* Select Box */}
+    <select 
+      value={fontFamily}
+      onChange={(e) => setFontFamily(e.target.value)}
+      className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-2 text-sm focus:outline-none focus:border-blue-500 text-white cursor-pointer"
+    >
+      <optgroup label="Standard Fonts" className="bg-slate-800 text-slate-400">
+        {presetFonts.map(f => (
+          <option key={f.family} value={f.family} className="text-white bg-slate-900">
+            {f.label}
+          </option>
+        ))}
+      </optgroup>
+
+      {localFonts.length > 0 && (
+        <optgroup label="System Fonts" className="bg-slate-800 text-slate-400">
+          {localFonts.map(f => (
+            <option key={f.postscriptName} value={f.family} className="text-white bg-slate-900">
+              {f.fullName}
+            </option>
+          ))}
+        </optgroup>
+      )}
+    </select>
+  </div>
+    {/* Size & Spacing */}
+  <div className="grid grid-cols-2 gap-4">
+    <div className="space-y-1">
+      <label className="text-[10px] text-slate-500 uppercase font-bold">Size</label>
+      <input 
+        type="number" 
+        value={fontSize}
+        onChange={(e) => setFontSize(Number(e.target.value))}
+        className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-sm text-white focus:border-blue-500 focus:outline-none"
+      />
+    </div>
+    <div className="space-y-1">
+      <label className="text-[10px] text-slate-500 uppercase font-bold">Line Spacing</label>
+      <div className="flex items-center gap-2">
+        <input 
+          type="range" min="0.5" max="2.5" step="0.1"
+          value={lineHeight}
+          onChange={(e) => setLineHeight(parseFloat(e.target.value))}
+          className="flex-1 h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+        />
+        <span className="text-[10px] font-mono text-blue-400 w-6 text-right">
+          {lineHeight}
+        </span>
+      </div>
+    </div>
+  </div>
+  </section>
+
+  {/* FILL SECTION (Main Color) */}
+  <section className="space-y-4 border-t border-slate-700 pt-4">
+    <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Fill</h3>
+    
+    <div className="flex items-center justify-between">
+      <span className="text-xs text-slate-400">Type</span>
+<div className="flex bg-slate-950 rounded-lg p-1 border border-slate-800">
+  <button 
+    onClick={() => setTextColorType('solid')}
+    className={`flex-1 px-3 py-1.5 text-xs rounded-md transition-all duration-200 ${
+      textColorType === 'solid' 
+        ? 'bg-blue-600 text-white shadow-md' 
+        : 'bg-transparent text-slate-500 hover:text-slate-300 hover:bg-slate-900'
+    }`}
+  >
+    Solid
+  </button>
+  <button 
+    onClick={() => setTextColorType('gradient')}
+    className={`flex-1 px-3 py-1.5 text-xs rounded-md transition-all duration-200 ${
+      textColorType === 'gradient' 
+        ? 'bg-blue-600 text-white shadow-md' 
+        : 'bg-transparent text-slate-500 hover:text-slate-300 hover:bg-slate-900'
+    }`}
+  >
+    Gradient
+  </button>
+</div>    </div>
+
+    {textColorType === 'solid' ? (
+      <div className="flex items-center gap-3">
+        <input type="color" value={textColor} onChange={(e) => setTextColor(e.target.value)} className="w-8 h-8 rounded border-0 bg-transparent cursor-pointer" />
+        <span className="text-xs font-mono text-slate-300">{textColor.toUpperCase()}</span>
+      </div>
+    ) : (
+      <div className="space-y-3">
+        <div className="flex items-center gap-2">
+          <input type="color" value={textGradientStart} onChange={(e) => setTextGradientStart(e.target.value)} className="w-8 h-8 rounded bg-transparent" />
+          <span className="text-slate-500">→</span>
+          <input type="color" value={textGradientEnd} onChange={(e) => setTextGradientEnd(e.target.value)} className="w-8 h-8 rounded bg-transparent" />
         </div>
-
-        {/* Local Font API未対応の警告 */}
-        {!localFontsAvailable && (
-          <div className="bg-blue-900/30 border border-blue-700 rounded-lg p-4 mb-4 flex items-start gap-3">
-            <AlertCircle className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" />
-            <div className="text-sm">
-              <p className="font-semibold text-blue-300 mb-1">💡 ローカルフォント機能について</p>
-              <p className="text-blue-200">
-                Chrome/Edge 103以降では、お使いのPC内のフォントを直接使用できます。
-                現在のブラウザでは未対応のため、プリセットフォントのみ利用可能です。
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* プリセット選択 */}
-        <div className="bg-slate-800 rounded-lg p-4 mb-4 shadow-xl">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold flex items-center gap-2">
-              <FolderOpen className="w-4 h-4" />
-              プリセット
-            </h3>
-            <button
-              onClick={savePreset}
-              className="text-xs bg-slate-700 hover:bg-slate-600 px-3 py-1 rounded flex items-center gap-1 transition"
-            >
-              <Save className="w-3 h-3" />
-              現在の設定を保存
-            </button>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {presets.map((preset, idx) => (
-              <button
-                key={idx}
-                onClick={() => loadPreset(preset)}
-                className="bg-slate-700 hover:bg-slate-600 px-4 py-2 rounded text-sm transition"
-              >
-                {preset.name}
-              </button>
-            ))}
-          </div>
+        <div className="flex justify-between items-center text-[10px] text-slate-400">
+          <span>Angle</span>
+          <span>{textGradientAngle}</span>
         </div>
+        <input 
+          type="range" min="0" max="360" value={textGradientAngle} 
+          onChange={(e) => setTextGradientAngle(Number(e.target.value))}
+          className="w-full h-1 bg-slate-700 accent-blue-500" 
+        />
+      </div>
+    )}
+  </section>
 
-        <div className="grid lg:grid-cols-5 gap-4">
-          {/* プレビュー */}
-          <div className="lg:col-span-3 bg-slate-800 rounded-lg p-4 shadow-xl">
-            <h2 className="text-lg font-semibold mb-3">プレビュー</h2>
-            <div className="bg-slate-700 rounded-lg p-4 flex items-center justify-center mb-4" style={{ minHeight: '300px' }}>
-              <canvas
-                ref={canvasRef}
-                width={800}
-                height={450}
-                className="max-w-full h-auto border-2 border-slate-600 rounded"
-                style={{ backgroundColor: 'transparent' }}
-              />
-            </div>
-
-            {/* テキスト入力 */}
-            {/*
-            <div className="mb-3">
-              <input
-                type="text"
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-                className="w-full bg-slate-700 border border-slate-600 rounded px-4 py-3 text-white text-lg"
-                placeholder="テキストを入力"
-              />
-            </div>
-            */}
-            <div className="mb-3">
-              <textarea
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-                // 元のclassNameをすべて継承し、textarea用に「resize-none」を追加しています
-                className="w-full bg-slate-700 border border-slate-600 rounded px-4 py-3 text-white text-lg resize-none"
-                placeholder="テキストを入力（Enterで改行）"
-                rows={3} 
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-3 mb-3">
-              <div className="col-span-2">
-                <label className="block text-xs text-slate-400 mb-1">フォント</label>
-                
-                {/* フォントソース選択（Local Font API対応時のみ表示） */}
-                {localFontsAvailable && (
-                  <div className="flex gap-2 mb-2">
-                    <button
-                      onClick={() => handleFontSourceChange('preset')}
-                      className={`flex-1 py-2 px-3 rounded text-xs font-medium transition-colors ${
-                        fontSource === 'preset'
-                          ? 'bg-blue-600 text-white'
-                          : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
-                      }`}
-                    >
-                      プリセット
-                    </button>
-                    <button
-                      onClick={() => handleFontSourceChange('local')}
-                      disabled={isLoadingFonts}
-                      className={`flex-1 py-2 px-3 rounded text-xs font-medium transition-colors ${
-                        fontSource === 'local'
-                          ? 'bg-blue-600 text-white'
-                          : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
-                      } disabled:opacity-50 disabled:cursor-not-allowed`}
-                    >
-                      {isLoadingFonts ? '読込中...' : `ローカル${localFonts.length > 0 ? ` (${localFonts.length})` : ''}`}
-                    </button>
-                  </div>
-                )}
-
-                <select
-                  value={fontFamily}
-                  onChange={(e) => setFontFamily(e.target.value)}
-                  className="w-full bg-slate-700 border border-slate-600 rounded px-3 py-2 text-white text-sm"
-                  disabled={isLoadingFonts}
-                >
-                  {fontSource === 'preset' ? (
-                    presetFonts.map(font => (
-                      <option key={font.label} value={font.family}>
-                        {font.label}
-                      </option>
-                    ))
-                  ) : (
-                    localFonts.map(font => (
-                      <option key={font.postscriptName} value={font.family}>
-                        {font.family}
-                      </option>
-                    ))
-                  )}
-                </select>
-              </div>
-              
-              <div className="col-span-2">
-                <label className="block text-xs text-slate-400 mb-1">
-                  サイズ: {fontSize}px
-                </label>
-                <input
-                  type="range"
-                  min="40"
-                  max="300"
-                  value={fontSize}
-                  onChange={(e) => setFontSize(Number(e.target.value))}
-                  className="w-full mt-2"
-                />
-              </div>
-            </div>
-
-            <div className="mb-4">
-              <div className="flex justify-between mb-2">
-                <label className="text-sm font-medium text-slate-300">行間</label>
-                <span className="text-xs text-slate-400">{lineHeight.toFixed(1)}</span>
-              </div>
-              <input
-                type="range"
-                min="0.5"
-                max="3.0"
-                step="0.1"
-                value={lineHeight}
-                onChange={(e) => setLineHeight(parseFloat(e.target.value))}
-                className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer"
-              />
-            </div>
-
-            <button
-              onClick={downloadImage}
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-lg flex items-center justify-center gap-2 transition"
-            >
-              <Download className="w-5 h-5" />
-              PNG出力（1920×1080）
-            </button>
-          </div>
-
-          {/* 設定パネル（タブ切り替え） */}
-          <div className="lg:col-span-2 space-y-4">
-            {/* タブボタン */}
-            <div className="bg-slate-800 rounded-lg p-2 shadow-xl flex gap-1">
-              <button
-                onClick={() => setActiveTab('text')}
-                className={`flex-1 py-2 px-3 rounded flex items-center justify-center gap-2 text-sm transition ${
-                  activeTab === 'text' ? 'bg-slate-600' : 'bg-slate-700 hover:bg-slate-650'
-                }`}
-              >
-                <Palette className="w-4 h-4" />
-                テキスト
-              </button>
-              <button
-                onClick={() => setActiveTab('border')}
-                className={`flex-1 py-2 px-3 rounded flex items-center justify-center gap-2 text-sm transition ${
-                  activeTab === 'border' ? 'bg-slate-600' : 'bg-slate-700 hover:bg-slate-650'
-                }`}
-              >
-                <Frame className="w-4 h-4" />
-                縁取り
-              </button>
-              <button
-                onClick={() => setActiveTab('shadow')}
-                className={`flex-1 py-2 px-3 rounded flex items-center justify-center gap-2 text-sm transition ${
-                  activeTab === 'shadow' ? 'bg-slate-600' : 'bg-slate-700 hover:bg-slate-650'
-                }`}
-              >
-                <Sun className="w-4 h-4" />
-                影
-              </button>
-            </div>
-
-            {/* タブコンテンツ */}
-            <div className="bg-slate-800 rounded-lg p-4 shadow-xl">
-              {activeTab === 'text' && (
-                <div className="space-y-4">
-                  <h3 className="text-lg font-semibold mb-3">テキストカラー</h3>
-
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => setTextColorType('solid')}
-                      className={`flex-1 py-2 px-3 rounded text-sm transition ${
-                        textColorType === 'solid' ? 'bg-slate-600' : 'bg-slate-700 hover:bg-slate-650'
-                      }`}
-                    >
-                      単色
-                    </button>
-                    <button
-                      onClick={() => setTextColorType('gradient')}
-                      className={`flex-1 py-2 px-3 rounded text-sm transition ${
-                        textColorType === 'gradient' ? 'bg-slate-600' : 'bg-slate-700 hover:bg-slate-650'
-                      }`}
-                    >
-                      グラデーション
-                    </button>
-                  </div>
-
-                  {textColorType === 'solid' ? (
-                    <div className="flex gap-2">
-                      <input
-                        type="color"
-                        value={textColor}
-                        onChange={(e) => setTextColor(e.target.value)}
-                        className="w-16 h-10 rounded cursor-pointer"
-                      />
-                      <input
-                        type="text"
-                        value={textColor}
-                        onChange={(e) => setTextColor(e.target.value)}
-                        className="flex-1 bg-slate-700 border border-slate-600 rounded px-3 py-2 text-white text-sm"
-                      />
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      <div className="flex gap-2">
-                        <div className="flex-1">
-                          <label className="block text-xs text-slate-400 mb-1">開始色</label>
-                          <div className="flex gap-2">
-                            <input
-                              type="color"
-                              value={textGradientStart}
-                              onChange={(e) => setTextGradientStart(e.target.value)}
-                              className="w-12 h-8 rounded cursor-pointer"
-                            />
-                            <input
-                              type="text"
-                              value={textGradientStart}
-                              onChange={(e) => setTextGradientStart(e.target.value)}
-                              className="flex-1 bg-slate-700 border border-slate-600 rounded px-2 py-1 text-white text-xs"
-                            />
-                          </div>
-                        </div>
-                        <div className="flex-1">
-                          <label className="block text-xs text-slate-400 mb-1">終了色</label>
-                          <div className="flex gap-2">
-                            <input
-                              type="color"
-                              value={textGradientEnd}
-                              onChange={(e) => setTextGradientEnd(e.target.value)}
-                              className="w-12 h-8 rounded cursor-pointer"
-                            />
-                            <input
-                              type="text"
-                              value={textGradientEnd}
-                              onChange={(e) => setTextGradientEnd(e.target.value)}
-                              className="flex-1 bg-slate-700 border border-slate-600 rounded px-2 py-1 text-white text-xs"
-                            />
-                          </div>
-                        </div>
-                      </div>
-                      <div>
-                        <label className="block text-xs text-slate-400 mb-1">
-                          角度: {textGradientAngle}°
-                        </label>
-                        <input
-                          type="range"
-                          min="0"
-                          max="360"
-                          value={textGradientAngle}
-                          onChange={(e) => setTextGradientAngle(Number(e.target.value))}
-                          className="w-full"
-                        />
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {activeTab === 'border' && (
-                <div className="space-y-4">
-                  <h3 className="text-lg font-semibold mb-3">縁取り設定</h3>
-
-                  <div>
-                    <label className="block text-sm font-medium mb-2">内側の縁（1本目）</label>
-                    <div className="flex gap-2 mb-2">
-                      <input
-                        type="color"
-                        value={border1Color}
-                        onChange={(e) => setBorder1Color(e.target.value)}
-                        className="w-14 h-9 rounded cursor-pointer"
-                      />
-                      <input
-                        type="text"
-                        value={border1Color}
-                        onChange={(e) => setBorder1Color(e.target.value)}
-                        className="flex-1 bg-slate-700 border border-slate-600 rounded px-3 py-2 text-white text-sm"
-                      />
-                    </div>
-                    <label className="block text-xs text-slate-400 mb-1">
-                      幅: {border1Width}px
-                    </label>
-                    <input
-                      type="range"
-                      min="0"
-                      max="30"
-                      value={border1Width}
-                      onChange={(e) => setBorder1Width(Number(e.target.value))}
-                      className="w-full"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium mb-2">外側の縁（2本目）</label>
-                    <div className="flex gap-2 mb-2">
-                      <input
-                        type="color"
-                        value={border2Color}
-                        onChange={(e) => setBorder2Color(e.target.value)}
-                        className="w-14 h-9 rounded cursor-pointer"
-                      />
-                      <input
-                        type="text"
-                        value={border2Color}
-                        onChange={(e) => setBorder2Color(e.target.value)}
-                        className="flex-1 bg-slate-700 border border-slate-600 rounded px-3 py-2 text-white text-sm"
-                      />
-                    </div>
-                    <label className="block text-xs text-slate-400 mb-1">
-                      幅: {border2Width}px
-                    </label>
-                    <input
-                      type="range"
-                      min="0"
-                      max="40"
-                      value={border2Width}
-                      onChange={(e) => setBorder2Width(Number(e.target.value))}
-                      className="w-full"
-                    />
-                  </div>
-                </div>
-              )}
-
-              {activeTab === 'shadow' && (
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <h3 className="text-lg font-semibold">影設定</h3>
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={shadowEnabled}
-                        onChange={(e) => setShadowEnabled(e.target.checked)}
-                        className="w-4 h-4"
-                      />
-                      <span className="text-sm">有効</span>
-                    </label>
-                  </div>
-
-                  {shadowEnabled && (
-                    <div className="space-y-3">
-                      <div>
-                        <label className="block text-xs text-slate-400 mb-1">
-                          X方向: {shadowOffsetX}px
-                        </label>
-                        <input
-                          type="range"
-                          min="0"
-                          max="30"
-                          value={shadowOffsetX}
-                          onChange={(e) => setShadowOffsetX(Number(e.target.value))}
-                          className="w-full"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-xs text-slate-400 mb-1">
-                          Y方向: {shadowOffsetY}px
-                        </label>
-                        <input
-                          type="range"
-                          min="0"
-                          max="30"
-                          value={shadowOffsetY}
-                          onChange={(e) => setShadowOffsetY(Number(e.target.value))}
-                          className="w-full"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-xs text-slate-400 mb-1">
-                          ぼかし: {shadowBlur}px
-                        </label>
-                        <input
-                          type="range"
-                          min="0"
-                          max="30"
-                          value={shadowBlur}
-                          onChange={(e) => setShadowBlur(Number(e.target.value))}
-                          className="w-full"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-xs text-slate-400 mb-1">
-                          不透明度: {Math.round(shadowOpacity * 100)}%
-                        </label>
-                        <input
-                          type="range"
-                          min="0"
-                          max="1"
-                          step="0.1"
-                          value={shadowOpacity}
-                          onChange={(e) => setShadowOpacity(Number(e.target.value))}
-                          className="w-full"
-                        />
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        <canvas
-          ref={downloadCanvasRef}
-          width={1920}
-          height={1080}
-          style={{ display: 'none' }}
+  {/* BORDER SECTION */}
+  <section className="space-y-4 border-t border-slate-700 pt-4">
+    <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Borders</h3>
+    
+    {/* Inner Border */}
+    <div className="space-y-2">
+      <div className="flex justify-between items-center text-[10px] text-slate-400">
+        <span>Inner Frame</span>
+        <span>{border1Width}px</span>
+      </div>
+      <div className="flex items-center gap-3">
+        <input type="color" value={border1Color} onChange={(e) => setBorder1Color(e.target.value)} className="w-6 h-6 rounded bg-transparent" />
+        <input 
+          type="range" min="0" max="40" value={border1Width} 
+          onChange={(e) => setBorder1Width(Number(e.target.value))}
+          className="flex-1 h-1 bg-slate-700 accent-blue-500" 
         />
       </div>
     </div>
+
+    {/* Outer Border */}
+    <div className="space-y-2">
+      <div className="flex justify-between items-center text-[10px] text-slate-400">
+        <span>Outer Frame</span>
+        <span>{border2Width}px</span>
+      </div>
+      <div className="flex items-center gap-3">
+        <input type="color" value={border2Color} onChange={(e) => setBorder2Color(e.target.value)} className="w-6 h-6 rounded bg-transparent" />
+        <input 
+          type="range" min="0" max="60" value={border2Width} 
+          onChange={(e) => setBorder2Width(Number(e.target.value))}
+          className="flex-1 h-1 bg-slate-700 accent-blue-500" 
+        />
+      </div>
+    </div>
+  </section>
+
+  {/* 保存ボタン：プリセットへの保存 */}
+  <button 
+    onClick={savePreset}
+    className="mt-6 w-full group border border-slate-600 bg-transparent hover:bg-slate-700 text-slate-300 hover:text-white py-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2"
+  >
+    <Save size={16} className="text-slate-400 group-hover:text-white transition-colors" />
+    <span>Save to Preset</span>
+  </button>
+</aside>
+  </div>
   );
 }
